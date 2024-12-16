@@ -3,6 +3,12 @@
 /* eslint-disable @typescript-eslint/no-unused-vars */
 "use client"
 
+declare global {
+  interface Window {
+    mapboxglInitialized: boolean;
+  }
+}
+
 import { useRef, useEffect, useState, useCallback } from 'react';
 import mapboxgl from 'mapbox-gl';
 import 'mapbox-gl/dist/mapbox-gl.css';
@@ -11,7 +17,7 @@ import { createRoot } from 'react-dom/client';
 import EnhancedLocationCard from './EnhancedLocationCard';
 import { Feature, Point, FeatureCollection, Geometry, GeoJsonProperties } from 'geojson';
 import { useTranslation } from 'react-i18next';
-import Loading from './Loading'; // Import the Loading component from your codebase
+import Loading from './Loading';
 import { Feature as CustomFeature, Geometry as CustomGeometry, GeoJsonProperties as CustomGeoJsonProperties } from '../types/types';
 // @ts-ignore
 import { CardApiData } from '../types/types';
@@ -19,35 +25,36 @@ import React from 'react';
 import { Switch } from "../components/ui/switch";
 import { Label } from "../components/ui/label";
 
-// Define color constants
 const ALL_DISTRICTS_COLOR = 'rgba(210,189,156, 0.1)';
 const DISTRICT_BORDER_COLOR = 'rgba(210,189,156, 1)';
 const SELECTED_DISTRICT_COLOR = 'rgba(231, 215, 190, 0.8)';
 const DEFAULT_STYLE = 'mapbox://styles/lateefyusufzai/cm1rvwr4000zb01qr7g690cjc';
 const SATELLITE_STYLE = 'mapbox://styles/mapbox/satellite-streets-v12';
 
-// Replace the hardcoded access token with the environment variable
-mapboxgl.accessToken = import.meta.env.VITE_MAPBOX_ACCESS_TOKEN;
+if (!window.mapboxglInitialized) {
+  mapboxgl.accessToken = import.meta.env.VITE_MAPBOX_ACCESS_TOKEN;
 
-// Add a check to ensure the token is set
-if (!mapboxgl.accessToken) {
-  //console.error("Mapbox access token is not set!");
+  mapboxgl.setRTLTextPlugin(
+    'https://api.mapbox.com/mapbox-gl-js/plugins/mapbox-gl-rtl-text/v0.2.3/mapbox-gl-rtl-text.js',
+    null,
+    true
+  );
+  
+  window.mapboxglInitialized = true;
 }
 
-mapboxgl.setRTLTextPlugin(
-  'https://api.mapbox.com/mapbox-gl-js/plugins/mapbox-gl-rtl-text/v0.2.3/mapbox-gl-rtl-text.js',
-  null,
-  true // Lazy load the plugin
-);
+// This is a hack to get around the map updating it's bounds when the style is changed to/from sattelite view
+// since we need to perform the same initializing functions to show the area boundries and icons as we do on
+// first map initialize but don't want to update the bounds of the map after the first time.
+let updateBounds = true;
 
 interface DashboardProps {  
   selectedDistrict: string;
   selectedSector: string;
   selectedCardData: CardApiData | CardApiData[] | null;
   districtsData: { results: { features: CustomFeature<CustomGeometry, CustomGeoJsonProperties>[] } } | null;
-  onNavigate: (sectorUrl: string, districtId: string) => void; // Add this prop
+  onNavigate: (sectorUrl: string, districtId: string) => void;
 }
-
 
 interface FeatureProperties {
   NAME_EN: string;
@@ -66,22 +73,19 @@ interface MapComponentProps {
   selectedSector: string;
   selectedCardData: CardApiData | CardApiData[] | null;
   districtsData: { results: { features: CustomFeature<CustomGeometry, CustomGeoJsonProperties>[] } } | null;
-  onNavigate: (sectorUrl: string, districtId: string) => void; // Add this prop
-  mapStyle: string; // Add this prop
-  onMapStyleChange: (style: string) => void; // Add this prop
+  onNavigate: (sectorUrl: string, districtId: string) => void;
+  mapStyle: string;
+  onMapStyleChange: (style: string) => void;
 }
 
 interface MapData {
   features: Feature[];
-  // Add other properties if needed
 }
 
 export interface CardApiData {
-  // ... other properties ...
   mapData?: MapData;
 }
 
-// Define the type for your GeoJSON data
 type GeoJSONData = {
   type: string;
   features: Feature[];
@@ -103,8 +107,6 @@ export default function MapComponent({
   mapStyle,
   onMapStyleChange,
 }: MapComponentProps) {
-  // ... component code ...
-
   const { i18n } = useTranslation();
 
   const mapContainer = useRef<HTMLDivElement>(null);
@@ -112,7 +114,6 @@ export default function MapComponent({
   const rotationIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const userInteractedRef = useRef<boolean>(false);
   const rotationGracePeriodRef = useRef<boolean>(false);
-  const [bearing, setBearing] = useState<number>(0);
   const [mapLoaded, setMapLoaded] = useState<boolean>(false);
   const [layersLoaded, setLayersLoaded] = useState<boolean>(false);
   const markersRef = useRef<mapboxgl.Marker[]>([]);
@@ -134,7 +135,6 @@ export default function MapComponent({
       duration: 250,
       easing: (t) => t,
     });
-    setBearing(newBearing);
     setTimeout(() => {
       rotationGracePeriodRef.current = false;
     }, 100);
@@ -156,9 +156,7 @@ export default function MapComponent({
   }, []);
 
   const initializeLayers = useCallback((map: mapboxgl.Map, featureCollection: FeatureCollection) => {
-    // console.log("Initializing layers. featureCollection:", featureCollection);
     if (!featureCollection) {
-      //console.warn("featureCollection is null, skipping layer initialization");
       return;
     }
 
@@ -166,24 +164,20 @@ export default function MapComponent({
 
     try {
       if (!map.getSource('fujairah-areas')) {
-        // console.log("Adding 'fujairah-areas' source");
         map.addSource('fujairah-areas', {
           type: 'geojson',
           data: featureCollection
         });
       } else {
-        // console.log("Updating 'fujairah-areas' source");
         (map.getSource('fujairah-areas') as mapboxgl.GeoJSONSource).setData(featureCollection);
       }
 
       if (!map.getLayer('fujairah-areas-fill')) {
-        // console.log("Adding 'fujairah-areas-fill' layer");
         map.addLayer({
           id: 'fujairah-areas-fill',
           type: 'fill',
           source: 'fujairah-areas',
           paint: {
-            // 'fill-color': 'rgba(37,99,235, 0.3)',
             'fill-color': 'rgba(255,229,153, 0.3)',
             'fill-opacity': 0.8
           }
@@ -191,7 +185,6 @@ export default function MapComponent({
       }
 
       if (!map.getLayer('fujairah-areas-outline')) {
-        // console.log("Adding 'fujairah-areas-outline' layer");
         map.addLayer({
           id: 'fujairah-areas-outline',
           type: 'line',
@@ -204,7 +197,6 @@ export default function MapComponent({
       }
 
       if (!map.getLayer('fujairah-areas-labels')) {
-        // console.log("Adding 'fujairah-areas-labels' layer");
         map.addLayer({
           id: 'fujairah-areas-labels',
           type: 'symbol',
@@ -245,10 +237,8 @@ export default function MapComponent({
         });
       }
 
-      // console.log("Layers initialized successfully");
       setLayersLoaded(true);
     } catch (error) {
-      //console.error("Error initializing layers:", error);
     }
   }, [i18n.language]);
 
@@ -281,18 +271,11 @@ export default function MapComponent({
 
   const updateDistrictVisibility = useCallback((map: mapboxgl.Map, selectedDistrict: string, padding: Padding = { top: 0.4, bottom: 0.4, left: 0.1, right: 0.5 }) => {
     if (!fujairahAreaData || !styleLoaded || !map.isStyleLoaded()) {
-      // console.warn("Map not ready for updates", {
-      //   fujairahAreaData: !!fujairahAreaData,
-      //   styleLoaded,
-      //   mapStyleLoaded: map.isStyleLoaded()
-      // });
       return;
     }
 
-    // Stop rotation regardless of the selected district
     stopRotation('districtSelected');
 
-    // Close any open popups before zooming
     const popups = document.getElementsByClassName('mapboxgl-popup');
     while (popups[0]) {
       popups[0].remove();
@@ -301,7 +284,6 @@ export default function MapComponent({
     const mapWidth = map.getContainer().clientWidth;
     const mapHeight = map.getContainer().clientHeight;
 
-    // Calculate padding as a percentage of the map's dimensions
     const calculatedPadding = {
       top: mapHeight * padding.top,
       bottom: mapHeight * padding.bottom,
@@ -313,7 +295,6 @@ export default function MapComponent({
       map.setFilter('fujairah-areas-labels', null);
       map.setPaintProperty('fujairah-areas-fill', 'fill-color', ALL_DISTRICTS_COLOR);
 
-      // Fit to bounds of all features
       const bounds = new mapboxgl.LngLatBounds();
       fujairahAreaData.features.forEach((feature) => {
         if (feature.geometry.type === 'MultiPolygon') {
@@ -332,7 +313,6 @@ export default function MapComponent({
         duration: 1000,
       });
 
-      // Do not resume rotation
       userInteractedRef.current = true;
     } else {
       map.setFilter('fujairah-areas-labels', ['==', ['get', 'AreaId'], parseInt(selectedDistrict)]);
@@ -383,9 +363,8 @@ export default function MapComponent({
             <EnhancedLocationCard
               properties={properties}
               onSectorSelect={(sector) => {
-                //console.log('Sector selected:', sector);
               }}
-              onNavigate={onNavigate} // Pass the navigation function
+              onNavigate={onNavigate}
             />
           );
 
@@ -407,22 +386,18 @@ export default function MapComponent({
 
   useEffect(() => {
     if (!mapContainer.current || !districtsData) {
-      //console.warn("Missing required data for map initialization");
       return;
     }
 
     if (!districtsData.results || !districtsData.results.features) {
-      //console.error("Invalid districtsData:", districtsData);
       return;
     }
 
     if (mapRef.current) {
-      // console.log("Map already initialized, updating data");
       updateExistingMap(mapRef.current, districtsData);
       return;
     }
 
-    // console.log("Initializing new map");
     initializeNewMap(districtsData);
 
   }, [districtsData]);
@@ -437,7 +412,6 @@ export default function MapComponent({
 
   }, [mapInstance, styleLoaded, layersLoaded, fujairahAreaData, selectedDistrict, selectedSector, selectedCardData, i18n.language]);
 
-  // Helper functions
   const updateMapView = (map: mapboxgl.Map, featureCollection: FeatureCollection) => {
     const bounds = new mapboxgl.LngLatBounds();
     featureCollection.features.forEach((feature) => {
@@ -452,9 +426,8 @@ export default function MapComponent({
       }
     });
 
-    if (!bounds.isEmpty()) {
+    if (!bounds.isEmpty() && updateBounds) {
       setTimeout(() => {
-        //console.log("Initial zoom level:", map.getZoom());
         map.fitBounds(bounds, {
           padding: { top: 50, bottom: 50, left: 50, right: 50 },
           duration: 3000,
@@ -463,16 +436,13 @@ export default function MapComponent({
 
         map.once('moveend', () => {
           const currentZoom = map.getZoom();
-          //console.log("Zoom level after fitBounds:", currentZoom);
           map.easeTo({
             zoom: currentZoom + 1.3,
-            // zoom: Math.max(currentZoom - 1, 0), // Zoom out by 1 level, but not below 0
             duration: 2500,
             easing: (t) => t,
           });
 
           map.once('moveend', () => {
-            //console.log("Final zoom level:", map.getZoom());
             setTimeout(() => {
               userInteractedRef.current = false;
               startRotation();
@@ -482,10 +452,11 @@ export default function MapComponent({
         });
       }, 500);
     } else {
-      //console.log("Bounds empty, current zoom level:", map.getZoom());
       setIsLoading(false);
       startRotation();
     }
+
+    updateBounds = true;
   };
 
   const updateFillColor = useCallback((map: mapboxgl.Map, selectedDistrict: string) => {
@@ -527,49 +498,39 @@ export default function MapComponent({
       }
     });
 
-    // console.log("Initializing layers");
     initializeLayers(map, featureCollection);
 
     if (!map.hasImage('notification-icon')) {
-      // console.log("Loading notification icon");
       map.loadImage(
         'https://docs.mapbox.com/mapbox-gl-js/assets/custom_marker.png',
         (error, image) => {
           if (error) {
-            console.error("Error loading notification icon:", error);
             return;
           }
           if (!image) {
-            console.warn("Notification icon image is null");
             return;
           }
           map.addImage('notification-icon', image);
           
-          // console.log("Setting up map interactions");
           setupMapInteractions(map);
-          // console.log("Updating map view");
           updateMapView(map, featureCollection);
         }
       );
     } else {
-      // console.log("Notification icon already loaded");
       setupMapInteractions(map);
       updateMapView(map, featureCollection);
     }
   }
 
   const initializeNewMap = (data: typeof districtsData) => {
-    // console.log("Setting up new map. districtsData:", data);
     setIsLoading(true);
     
     if (!data || !data.results || !data.results.features) {
-      // console.error("Invalid districtsData:", data);
       setIsLoading(false);
       return;
     }
 
     const filteredFeatures = data.results.features.filter(feature => feature.geometry !== null);
-    // console.log("Filtered features:", filteredFeatures);
     const featureCollection: FeatureCollection = {
       type: 'FeatureCollection',
       features: filteredFeatures as Feature<GeoJSON.Geometry, GeoJSON.GeoJsonProperties>[]
@@ -586,35 +547,21 @@ export default function MapComponent({
       interactive: true,
       localIdeographFontFamily: "'Noto Sans', 'Noto Sans Arabic', sans-serif"
     });
-    // console.log("Map instance created successfully");
     mapRef.current = map;
 
     map.on('style.load', function() {
-      // console.log("Map style load event fired");
       if (!map.isStyleLoaded()) {
-        console.warn("Style reported as loaded, but isStyleLoaded() returns false. Waiting for idle event.");
         map.once('idle', () => {
-          // console.log("Map idle event fired, proceeding with initialization");
           initializeMapAfterStyleLoad(map, featureCollection);
         });
       } else {
-        // console.log("Style fully loaded, proceeding with initialization");
         initializeMapAfterStyleLoad(map, featureCollection);
       }
     });
-
-    map.on('load', () => {
-      // console.log("Map fully loaded");
-    });
-
-    // Add other event listeners here
   };
 
   const updateExistingMap = (map: mapboxgl.Map, data: typeof districtsData) => {
-    // console.log("Updating existing map with new data");
-    
     if (!data || !data.results || !data.results.features) {
-      console.error("Invalid districtsData for update:", data);
       return;
     }
 
@@ -638,7 +585,6 @@ export default function MapComponent({
   useEffect(() => {
     if (!mapInstance) return;
 
-    // Update the handleInteraction function signature
     const handleInteraction = (e: mapboxgl.MapMouseEvent | mapboxgl.MapTouchEvent | mapboxgl.MapWheelEvent) => {
       stopRotation(e.type as mapboxgl.MapEventType);
     };
@@ -646,40 +592,35 @@ export default function MapComponent({
     const events = ['wheel', 'mousedown', 'touchstart', 'dragstart'] as const;
 
     events.forEach((event) => {
-      // Update the type assertion for the event listener
       // @ts-ignore
       mapInstance.on(event, handleInteraction as (ev: mapboxgl.MapMouseEvent) => void);
     });
 
     return () => {
       events.forEach((event) => {
-        // Update the type assertion for removing the event listener
         // @ts-ignore
         mapInstance.off(event, handleInteraction as (ev: mapboxgl.MapMouseEvent) => void);
       });
 
-      // Clear any existing timeout on cleanup
       if (interactionTimeout) {
         clearTimeout(interactionTimeout);
       }
     };
   }, [mapInstance, stopRotation, interactionTimeout]);
 
-  // Add this effect to handle style changes
   useEffect(() => {
     if (!mapInstance || !fujairahAreaData) return;
 
-    // Store current camera position and bearing
     const currentZoom = mapInstance.getZoom();
     const currentCenter = mapInstance.getCenter();
     const currentPitch = mapInstance.getPitch();
     const currentBearing = mapInstance.getBearing();
 
+    updateBounds = false;
+
     mapInstance.setStyle(mapStyle);
     
-    // Re-add layers after style change
     mapInstance.once('style.load', () => {
-      // Restore camera position and bearing with no animation
       mapInstance.jumpTo({
         center: currentCenter,
         zoom: currentZoom,
@@ -687,7 +628,6 @@ export default function MapComponent({
         bearing: currentBearing
       });
 
-      // Stop any ongoing animations
       mapInstance.stop();
 
       if (fujairahAreaData) {
